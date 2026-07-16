@@ -1,0 +1,7 @@
+numpy>=2.4
+requests>=2.34
+beautifulsoup4>=4.14
+matplotlib>=3.11
+contextily>=1.7
+pyproj>=3.7
+lxml>=6.1
