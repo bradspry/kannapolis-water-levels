@@ -5,7 +5,7 @@ __pycache__/
 water_data.db
 water_data.db-shm
 water_data.db-wal
-water_map.png
+.tile_cache/
 
 .DS_Store
 

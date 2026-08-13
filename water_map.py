@@ -15,6 +15,7 @@ import warnings
 import sys
 import re
 from datetime import date
+from pathlib import Path as _Path
 
 import numpy as np
 import requests
@@ -117,6 +118,15 @@ HEADERS = {
         "Chrome/120.0.0.0 Safari/537.36"
     )
 }
+
+# OSM's tile usage policy (https://operations.osmfoundation.org/policies/tiles/)
+# requires requests to carry an identifying User-Agent; contextily's default
+# ("contextily-<random-uuid>") gets blocked with a 403. Also cache tiles
+# locally so repeat runs over the same map extent don't re-hit OSM at all.
+OSM_TILE_HEADERS = {
+    "User-Agent": "kannapolis-concord-water-map/1.0 (contact: bradspry@gmail.com)"
+}
+ctx.set_cache_dir(str(_Path(__file__).parent / ".tile_cache"))
 
 TRANSFORMER = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
@@ -494,7 +504,13 @@ def build_map(
     ax.set_ylim(y_min, y_max)
     ax.set_aspect("equal")
 
-    ctx.add_basemap(ax, crs="EPSG:3857", source=ctx.providers.OpenStreetMap.Mapnik, zoom=12)
+    ctx.add_basemap(
+        ax,
+        crs="EPSG:3857",
+        source=ctx.providers.OpenStreetMap.Mapnik,
+        zoom=12,
+        headers=OSM_TILE_HEADERS,
+    )
 
     # Draw lakes
     for name, info in LAKES.items():

@@ -12,6 +12,8 @@ Generates a PNG map showing current water levels across the Kannapolis/Concord, 
 
 Each run stores readings in a local SQLite database (`water_data.db`) so the map can show day-over-day trend arrows.
 
+![Kannapolis / Concord water sources map](water_map.png)
+
 ## Usage
 
 ```bash
