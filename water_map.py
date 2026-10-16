@@ -35,9 +35,10 @@ warnings.filterwarnings("ignore")
 # City-managed lakes (WGS-84 lat/lon, label_side: "above" | "below")
 # ---------------------------------------------------------------------------
 LAKES = {
-    "Howell/Coddle Creek": {"lat": 35.445188, "lon": -80.705149, "label": "left"},
-    "Fisher":              {"lat": 35.490328, "lon": -80.578603, "label": "above"},
-    "Concord":             {"lat": 35.479678, "lon": -80.588138, "label": "below"},
+    "Howell/Coddle Creek": {"lat": 35.445188, "lon": -80.705149, "label": "left",
+                            "offset": (2_600, -22_000)},
+    "Fisher":              {"lat": 35.490328, "lon": -80.578603, "label": "right", "hidden": True},
+    "Concord":             {"lat": 35.479678, "lon": -80.588138, "label": "below", "hidden": True},
     "Kannapolis Lake":     {"display": "Kannapolis Lake", "lat": 35.512083, "lon": -80.646457, "label": "left"},
 }
 
@@ -71,7 +72,7 @@ CUBE_LAKES = {
     "Tuckertown": {
         "display": "Tuckertown Reservoir",
         "lat": 35.542,  "lon": -80.198,
-        "label": "right",
+        "label": "right", "offset": (-2_500, 0),
     },
     "Badin (Narrows)": {
         "display": "Badin Lake (Narrows)",
@@ -89,7 +90,7 @@ NOAA_LAKES = {
         "display":   "Lookout Shoals Lake",
         "full_pool": 100.0,
         "lat": 35.757739, "lon": -81.089201,
-        "label": "above",
+        "label": "above", "hidden": True,
     },
     "CWAN7": {
         "display":   "Lake Norman",
@@ -101,9 +102,66 @@ NOAA_LAKES = {
         "display":   "Mountain Island Lake",
         "full_pool": 100.0,
         "lat": 35.3338, "lon": -80.9868,
-        "label": "right",
+        "label": "left", "hidden": True,
     },
 }
+
+# ---------------------------------------------------------------------------
+# Kannapolis water supply (MGD = million gallons per day)
+# Source: City of Kannapolis "Projected Necessary Future Water Supply" chart.
+# owner: "own" = Kannapolis' own lake; "neighbor" = water from outside the city
+# ---------------------------------------------------------------------------
+KANNAPOLIS_HUB = {"lat": 35.4874, "lon": -80.6217}
+
+# The chart states 15.6 MGD of existing capacity but only itemizes 13.6 MGD;
+# the remainder is drawn as "Unlisted", with ownership unverified.
+EXISTING_CAPACITY_MGD = 15.6
+
+SUPPLY_SOURCES = [
+    # Existing supply capacity: 15.6 MGD
+    {"name": "Kannapolis Lake", "map_key": "Kannapolis Lake",
+     "lat": 35.512083, "lon": -80.646457, "mgd": 8.5, "owner": "own"},
+    {"name": "Lake Howell", "map_key": "Howell/Coddle Creek",
+     "lat": 35.445188, "lon": -80.705149, "mgd": 2.6, "owner": "neighbor"},
+    # Intake is in Rowan County; 1989-92 county records suggest Kannapolis
+    # bought it from Kannapolis Water Co., but current ownership is unconfirmed.
+    {"name": "Second Creek", "map_key": "Second Creek",
+     "lat": 35.717611, "lon": -80.596075, "mgd": 2.5, "owner": "unverified",
+     "rad": 0.3},
+    # Planned expansions (mgd/year None = not yet published; drawn on the map
+    # but left out of the MGD bars). label_offset: callout (dx, dy) in meters.
+    {"name": "Salisbury", "via": "Salisbury connection",
+     "lat": 35.6709, "lon": -80.4742, "mgd": 2.0, "owner": "neighbor",
+     "planned": True, "year": 2035, "label_offset": (0, 7_000)},
+    {"name": "Albemarle", "via": "Albemarle expansion",
+     "lat": 35.3501, "lon": -80.2001, "mgd": 2.0, "owner": "neighbor",
+     "planned": True, "year": 2045, "label_offset": (0, -7_000)},
+    # City's FY2026-36 CIP: "Charlotte Water Interconnect - Summers Walk"
+    # (FY2027, no capacity given) and "Charlotte Water Connection - Davidson Rd
+    # (1.0 MGD)" (FY2032). Assumed to be the same interconnection point.
+    # 19030 Wilberforce Way, Davidson isn't in OSM/Census geocoders, so this is
+    # the Summers Walk neighborhood centroid from OSM.
+    {"name": "Charlotte Water", "via": "Summers Walk interconnection",
+     "short": "Charlotte Water at Summers Walk", "bar_label": "CLT",
+     "lat": 35.4479, "lon": -80.7745, "mgd": 1.0, "owner": "neighbor",
+     "planned": True, "year": 2032, "label_offset": (-19_000, -7_400)},
+]
+
+OWN_COLOR      = "#2a78d6"   # blue   — Kannapolis' own water
+NEIGHBOR_COLOR = "#eb6834"   # orange — neighbors' water
+UNVERIFIED_COLOR = "#8a8a8a" # gray   — ownership not confirmed
+OWNER_COLORS = {"own": OWN_COLOR, "neighbor": NEIGHBOR_COLOR, "unverified": UNVERIFIED_COLOR}
+
+# Sources this close to the city center get no line — it would be a stub
+MIN_ARROW_DISTANCE_M = 8_000
+
+
+def supply_line(map_key: str) -> str:
+    """Extra label line for a map pin that supplies Kannapolis, else ''."""
+    for src in SUPPLY_SOURCES:
+        if src.get("map_key") == map_key:
+            return f"Supplies {src['mgd']:g} MGD to Kannapolis"
+    return ""
 
 LAKE_URL       = "https://concordnc.gov/Departments/Water-Resources/Lake-Level-Data"
 CUBE_HYDRO_URL = "https://ww4.cubecarolinas.com/lake/levels?orgID=3"
@@ -437,8 +495,11 @@ def draw_pin(ax, x, y, color, size=1_100, zorder=5):
     ax.add_patch(mpatches.Circle((x, head_y), radius=r * 0.38, color="white", zorder=9))
 
 
-def add_label(ax, x, y, text, color, side="above", pin_size=5_000):
-    """Draw a label with a leader line in one of four directions from the pin."""
+def add_label(ax, x, y, text, color, side="above", pin_size=5_000, offset=(0, 0)):
+    """
+    Draw a label with a leader line in one of four directions from the pin.
+    offset: extra (dx, dy) in meters to nudge the label clear of its neighbors.
+    """
     pin_height = pin_size * 0.36 * 2.1 + pin_size * 0.36
     pin_mid_y  = y + pin_height * 0.5
     pin_top_y  = y + pin_height
@@ -457,6 +518,7 @@ def add_label(ax, x, y, text, color, side="above", pin_size=5_000):
     else:  # right
         lx, ly  = x + H_OFFSET,  pin_mid_y
         ann_xy  = (x,             pin_mid_y)
+    lx, ly = lx + offset[0], ly + offset[1]
 
     ax.annotate(
         text,
@@ -468,6 +530,142 @@ def add_label(ax, x, y, text, color, side="above", pin_size=5_000):
         arrowprops=dict(arrowstyle="-", color=color, lw=1.5),
         zorder=5,
     )
+
+
+def _arc_midpoint(a, b, rad):
+    """Midpoint of matplotlib's arc3 quadratic Bézier from a to b."""
+    (x1, y1), (x2, y2) = a, b
+    cx = (x1 + x2) / 2 + rad * (y2 - y1)
+    cy = (y1 + y2) / 2 - rad * (x2 - x1)
+    return 0.25 * x1 + 0.5 * cx + 0.25 * x2, 0.25 * y1 + 0.5 * cy + 0.25 * y2
+
+
+def draw_supply_flows(ax):
+    """Lines from each outside supply source into Kannapolis, width scaled by MGD."""
+    hub = to_mercator(KANNAPOLIS_HUB["lat"], KANNAPOLIS_HUB["lon"])
+
+    for src in SUPPLY_SOURCES:
+        start = to_mercator(src["lat"], src["lon"])
+        future = src.get("planned", False)
+        color = OWNER_COLORS[src["owner"]]
+
+        if future:
+            # Neighboring utility that would sell water to Kannapolis
+            ax.plot(*start, marker="s", ms=13, mfc=color, mec="white", mew=2, zorder=8)
+            if src["mgd"] is not None:
+                amount = f"+{src['mgd']:g} MGD by {src['year']}"
+            else:
+                amount = f"FY{src['year']} · capacity not stated"
+            dx, dy = src["label_offset"]
+            ax.annotate(
+                f"{src['name']}\n{src['via']}\n{amount}",
+                xy=start, xytext=(start[0] + dx, start[1] + dy),
+                ha="center", va="center", fontsize=10, fontweight="bold",
+                color="#1a1a1a", linespacing=1.4, zorder=6,
+                bbox=dict(boxstyle="round,pad=0.4", fc="white", ec=color, lw=2,
+                          ls="--", alpha=0.92),
+                arrowprops=dict(arrowstyle="-", color=color, lw=1.5),
+            )
+
+        if np.hypot(start[0] - hub[0], start[1] - hub[1]) < MIN_ARROW_DISTANCE_M:
+            continue
+        rad = src.get("rad", 0.18 if start[0] < hub[0] else -0.18)
+        ax.add_patch(mpatches.FancyArrowPatch(
+            start, hub,
+            connectionstyle=f"arc3,rad={rad}",
+            arrowstyle="-",
+            lw=2 + (src["mgd"] or 0.5) * 1.1,
+            linestyle=(0, (4, 2)) if future else "-",
+            color=color, alpha=0.9,
+            shrinkA=4, shrinkB=14,
+            zorder=4,
+        ))
+
+    ax.plot(*hub, marker="*", ms=30, mfc="#1a1a1a", mec="white", mew=2, zorder=10)
+    ax.text(
+        hub[0], hub[1] - 3_000, "KANNAPOLIS",
+        ha="center", va="top", fontsize=13, fontweight="bold", color="#1a1a1a",
+        path_effects=[pe.withStroke(linewidth=4, foreground="white")], zorder=10,
+    )
+
+
+def draw_supply_panel(ax):
+    """Stacked bars under the map: today's supply vs. after planned expansions."""
+    panel = ax.inset_axes([0.0, -0.25, 1.0, 0.22])
+    panel.set_facecolor("white")
+    for spine in panel.spines.values():
+        spine.set_edgecolor("#bbbbbb")
+
+    existing = [s for s in SUPPLY_SOURCES if not s.get("planned")]
+    planned = sorted((s for s in SUPPLY_SOURCES if s.get("planned") and s["mgd"] is not None),
+                     key=lambda s: s["year"])
+    tbd = [s for s in SUPPLY_SOURCES if s.get("planned") and s["mgd"] is None]
+    unitemized = round(EXISTING_CAPACITY_MGD - sum(s["mgd"] for s in existing), 2)
+    gap = [{"name": "Unlisted", "mgd": unitemized, "owner": "unverified"}] if unitemized > 0 else []
+    rows = [
+        ("Today", existing + gap),
+        ("After planned "
+         + ", ".join(f"{s['name']} ({s['year']})" for s in planned[:-1])
+         + f" and {planned[-1]['name']} ({planned[-1]['year']}) connections",
+         existing + gap + planned),
+    ]
+
+    for i, (title, sources) in enumerate(rows):
+        y = 1 - i
+        left = 0.0
+        for src in sources:
+            future = src.get("planned", False)
+            color = OWNER_COLORS[src["owner"]]
+            panel.barh(
+                y, src["mgd"], left=left, height=0.42,
+                color=color, alpha=0.55 if future else 1.0,
+                hatch="//" if future else None,
+                edgecolor="white", linewidth=2,
+            )
+            panel.text(left + src["mgd"] / 2, y, f"{src.get('bar_label', src['name'])}  {src['mgd']:g}",
+                       ha="center", va="center", fontsize=7.5, fontweight="bold",
+                       color="#1a1a1a" if future else "white")
+            left += src["mgd"]
+        neighbor = sum(s["mgd"] for s in sources if s["owner"] == "neighbor")
+        if i == 1 and tbd:
+            title += "  ·  " + ", ".join(
+                f"{s.get('short', s['name'])} (FY{s['year']})" for s in tbd
+            ) + " not in bar: capacity not stated"
+        panel.text(0, y + 0.3, title, ha="left", va="bottom",
+                   fontsize=10, fontweight="bold", color="#1a1a1a")
+        unverified = sum(s["mgd"] for s in sources if s["owner"] == "unverified")
+        summary = f"{left:g} MGD total\n{neighbor:g} MGD ({neighbor / left:.0%}) from neighbors"
+        if unverified:
+            summary += f"\n{unverified:g} MGD ({unverified / left:.0%}) unverified"
+        panel.text(left + 0.25, y, summary,
+                   ha="left", va="center", fontsize=10, fontweight="bold",
+                   color="#1a1a1a", linespacing=1.3)
+
+    panel.set_xlim(-0.2, 27)
+    panel.set_ylim(-0.75, 2.05)
+    panel.set_xticks([])
+    panel.set_yticks([])
+    panel.set_title(
+        "Where Kannapolis' water comes from  (MGD = million gallons per day)",
+        fontsize=12, fontweight="bold", loc="left", pad=8,
+    )
+
+    handles = [
+        mpatches.Patch(color=OWN_COLOR, label="Kannapolis' own lake"),
+        mpatches.Patch(color=NEIGHBOR_COLOR, label="Neighbors' water"),
+        mpatches.Patch(color=UNVERIFIED_COLOR, label="Ownership unverified"),
+        mpatches.Patch(fc=NEIGHBOR_COLOR, alpha=0.55, hatch="//", ec="white",
+                       label="Planned purchase (dashed line on map)"),
+    ]
+    panel.legend(handles=handles, loc="upper right", ncol=2, fontsize=8.5,
+                 frameon=False, handlelength=1.4, columnspacing=1.2)
+    panel.text(0.998, 0.02,
+               "Sources: City of Kannapolis, Projected Necessary Future Water Supply; "
+               "Water & Sewer CIP FY2026-36 (Charlotte Water). "
+               f"Unlisted = part of the {EXISTING_CAPACITY_MGD:g} MGD total with no named source. "
+               "Line width on map is proportional to MGD.",
+               transform=panel.transAxes, ha="right", va="bottom",
+               fontsize=7.5, color="#666666")
 
 
 # ---------------------------------------------------------------------------
@@ -483,15 +681,20 @@ def build_map(
     output: str = "water_map.png",
 ):
     """Render all pins/labels over an OSM basemap and save the composed PNG."""
-    # Collect all coordinates
+    # Collect coordinates of everything drawn ("hidden" sources are still
+    # fetched and stored, just left off the map)
     all_coords: dict[str, tuple[float, float]] = {}
     for name, info in LAKES.items():
-        all_coords[name] = to_mercator(info["lat"], info["lon"])
+        if not info.get("hidden"):
+            all_coords[name] = to_mercator(info["lat"], info["lon"])
     for name, info in usgs_data.items():
         if info["lat"] is not None:
             all_coords[name] = to_mercator(info["lat"], info["lon"])
     for name, info in cube_data.items():
-        all_coords[name] = to_mercator(info["lat"], info["lon"])
+        if not info.get("hidden"):
+            all_coords[name] = to_mercator(info["lat"], info["lon"])
+    for src in SUPPLY_SOURCES:
+        all_coords.setdefault(src["name"], to_mercator(src["lat"], src["lon"]))
 
     xs = [c[0] for c in all_coords.values()]
     ys = [c[1] for c in all_coords.values()]
@@ -512,8 +715,13 @@ def build_map(
         headers=OSM_TILE_HEADERS,
     )
 
+    draw_supply_flows(ax)
+    draw_supply_panel(ax)
+
     # Draw lakes
     for name, info in LAKES.items():
+        if name not in all_coords:
+            continue
         x, y = all_coords[name]
         level_text = lake_levels.get(name, "No data")
         display_name = info.get("display", f"Lake {name}")
@@ -526,9 +734,11 @@ def build_map(
             trend = trend_label(_delta_in / 12 if _delta_in is not None else None, unit="ft", higher_is_better=False)
         else:
             trend = ""
-        label_text = f"{display_name}\n{level_label}" + (f"\n{trend}" if trend else "")
+        supply = supply_line(name)
+        label_text = f"{display_name}\n{level_label}" + (f"\n{trend}" if trend else "") + (f"\n{supply}" if supply else "")
         draw_pin(ax, x, y, color, size=5_000)
-        add_label(ax, x, y, label_text, color, side=info["label"])
+        add_label(ax, x, y, label_text, color, side=info["label"],
+                  offset=info.get("offset", (0, 0)))
 
     # Draw USGS stream gauges
     for name, info in usgs_data.items():
@@ -556,9 +766,11 @@ def build_map(
         color = NO_DATA_COLOR if flow is None else PIN_COLOR
         # flow_cfs: positive delta = more flow = good (higher_is_better=True)
         trend = trend_label(db.stream_trend(name), unit="cfs", higher_is_better=True)
-        label_text = f"{name}\n{flow_label}" + (f"\n{trend}" if trend else "")
+        supply = supply_line(name)
+        label_text = f"{name}\n{flow_label}" + (f"\n{trend}" if trend else "") + (f"\n{supply}" if supply else "")
         draw_pin(ax, x, y, color, size=5_000)
-        add_label(ax, x, y, label_text, color, side=info["label"])
+        add_label(ax, x, y, label_text, color, side=info["label"],
+                  offset=info.get("offset", (0, 0)))
 
     # Draw Cube Hydro reservoirs
     for name, info in cube_data.items():
@@ -572,11 +784,12 @@ def build_map(
         trend = trend_label(db.reservoir_trend(info["display"]), unit="ft", higher_is_better=False)
         label_text = f"{info['display']}\n{level_label}" + (f"\n{trend}" if trend else "")
         draw_pin(ax, x, y, color, size=5_000)
-        add_label(ax, x, y, label_text, color, side=info["label"])
+        add_label(ax, x, y, label_text, color, side=info["label"],
+                  offset=info.get("offset", (0, 0)))
 
 
     ax.set_title(
-        f"Kannapolis / Concord Water Sources\n"
+        f"Kannapolis / Concord Water Sources — and where Kannapolis' water comes from\n"
         f"City lakes: {lake_updated}  ·  Cube Hydro: {cube_updated}  ·  NOAA/USGS: live",
         fontsize=11, fontweight="bold", pad=12,
     )

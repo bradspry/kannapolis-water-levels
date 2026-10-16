@@ -12,6 +12,8 @@ Generates a PNG map showing current water levels across the Kannapolis/Concord, 
 
 Each run stores readings in a local SQLite database (`water_data.db`) so the map can show day-over-day trend arrows.
 
+The map also shows **where Kannapolis' water comes from**: lines from each supply source into the city, sized by million gallons per day (MGD), plus a panel comparing today's 15.6 MGD supply with the supply after the planned Charlotte Water (2032), Salisbury (2035) and Albemarle (2045) connections. Sources are colored by ownership: Kannapolis' own lake, neighbors' water, or ownership unverified. Figures come from the City of Kannapolis water supply projection and its FY2026–36 Water & Sewer Capital Improvement Plan; edit `SUPPLY_SOURCES` in `water_map.py` to update them.
+
 ![Kannapolis / Concord water sources map](water_map.png)
 
 ## Usage
